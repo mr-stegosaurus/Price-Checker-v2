@@ -1,0 +1,18 @@
+# Dependencies
+**/node_modules/
+
+# Environment files
+**/.env*
+
+# Build files
+**/dist/
+**/build/
+
+# System files
+**/.DS_Store
+
+# Logs
+**/*.log
+
+# Coverage
+**/coverage/
