@@ -1,0 +1,11 @@
+titanoboa[forking-recommended]==0.1.10
+titanoboa-zksync==0.1.1
+black
+flake8
+isort
+pip-tools
+pre-commit
+tabulate
+rich
+pytest
+pytest-xdist
