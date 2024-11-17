@@ -6,9 +6,15 @@ import json
 from curve_get_price import get_curve_prices
 from uniswap import get_uniswap_prices
 from arb import find_arbitrage_opportunities
+from dotenv import load_dotenv
+import os
 
-# Initialize Web3
-w3 = Web3(Web3.HTTPProvider('https://eth-mainnet.g.alchemy.com/v2/1vrOjbMXRF6L4M_AgL-7W3jCvuVXKlRt'))
+# Load environment variables
+load_dotenv()
+
+# Get Alchemy API URL from environment variables
+ALCHEMY_API_URL = os.getenv('ALCHEMY_API_URL')
+w3 = Web3(Web3.HTTPProvider(ALCHEMY_API_URL))
 
 def get_block_by_timestamp(timestamp: int) -> int:
     """Get the closest block number for a given timestamp"""

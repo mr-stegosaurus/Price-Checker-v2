@@ -1,7 +1,13 @@
 from web3 import Web3
+from dotenv import load_dotenv
+import os
 
-# Connect to network
-w3 = Web3(Web3.HTTPProvider('https://eth-mainnet.g.alchemy.com/v2/1vrOjbMXRF6L4M_AgL-7W3jCvuVXKlRt'))
+# Load environment variables
+load_dotenv()
+
+# Get Alchemy API URL from environment variables
+ALCHEMY_API_URL = os.getenv('ALCHEMY_API_URL')
+w3 = Web3(Web3.HTTPProvider(ALCHEMY_API_URL))
 
 # MetaRegistry contract address
 registry_address = Web3.to_checksum_address('0xF98B45FA17DE75FB1aD0e7aFD971b0ca00e379fC')

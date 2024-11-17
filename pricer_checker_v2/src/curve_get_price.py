@@ -1,8 +1,14 @@
 from web3 import Web3
 from typing import Dict, Optional
+from dotenv import load_dotenv
+import os
 
-# Connect to network
-w3 = Web3(Web3.HTTPProvider('https://eth-mainnet.g.alchemy.com/v2/1vrOjbMXRF6L4M_AgL-7W3jCvuVXKlRt'))
+# Load environment variables
+load_dotenv()
+
+# Get Alchemy API URL from environment variables
+ALCHEMY_API_URL = os.getenv('ALCHEMY_API_URL')
+w3 = Web3(Web3.HTTPProvider(ALCHEMY_API_URL))
 
 # Token addresses for verification
 USDC = Web3.to_checksum_address("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")

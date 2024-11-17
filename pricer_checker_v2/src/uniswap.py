@@ -1,9 +1,15 @@
 from web3 import Web3
 from eth_typing import HexAddress
 from typing import Dict
+from dotenv import load_dotenv
+import os
 
-# Connect to network
-w3 = Web3(Web3.HTTPProvider('https://eth-mainnet.g.alchemy.com/v2/1vrOjbMXRF6L4M_AgL-7W3jCvuVXKlRt'))
+# Load environment variables
+load_dotenv()
+
+# Get Alchemy API URL from environment variables
+ALCHEMY_API_URL = os.getenv('ALCHEMY_API_URL')
+w3 = Web3(Web3.HTTPProvider(ALCHEMY_API_URL))
 
 # Constants
 QUOTER_ADDRESS = "0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6"
