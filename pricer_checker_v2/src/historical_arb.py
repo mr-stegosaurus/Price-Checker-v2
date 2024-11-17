@@ -136,7 +136,7 @@ def analyze_results(opportunities: List[Dict]):
 
 if __name__ == "__main__":
     # Run analysis for past 3 days, checking every 30 minutes
-    opportunities = analyze_historical_arbitrage(days=3, interval_minutes=30)
+    opportunities = analyze_historical_arbitrage(days=1, interval_minutes=0.5)
     
     # Analyze results
     analyze_results(opportunities) 
