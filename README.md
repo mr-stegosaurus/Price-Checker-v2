@@ -6,4 +6,7 @@ To-Do
 -Add CEXes
 -Update curve pricing with more sophsiticated routing.
 -Update uniswap pricing with more sophisticated routing.
--Create backtesting script to find historical arbitrage opportunities.
+-Create backtesting script to find historical arbitrage opportunities. [DONE]
+-Create addtl backtesting script that uses TheGraph instead of Alchemy. Should be faster.
+-Update Uniswap and Curve pricing to use all pools instead of just the 2 I have hardcoded.
+-Create folders with scripts that run on separate chains (mainnet, base, arbitrum, etc.)
