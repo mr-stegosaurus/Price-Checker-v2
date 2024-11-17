@@ -8,6 +8,7 @@ from uniswap import get_uniswap_prices
 from arb import find_arbitrage_opportunities
 from dotenv import load_dotenv
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Load environment variables
 load_dotenv()
@@ -64,53 +65,46 @@ def get_prices_at_block(block_number: int) -> List[Dict]:
     w3.eth.default_block = 'latest'
     return all_pools
 
-def analyze_historical_arbitrage(days: int = 3, interval_minutes: int = 30):
-    """
-    Analyze arbitrage opportunities over the past X days
-    Args:
-        days: Number of days to look back
-        interval_minutes: Minutes between each check
-    """
+def fetch_block_data(timestamp):
+    try:
+        block = get_block_by_timestamp(timestamp)
+        prices = get_prices_at_block(block)
+        opportunities = find_arbitrage_opportunities(prices)
+        return (timestamp, block, opportunities)
+    except Exception as e:
+        print(f"Error processing timestamp {timestamp}: {str(e)}")
+        return None
+
+def analyze_historical_arbitrage_parallel(days=3, interval_minutes=30):
     end_time = int(time.time())
     start_time = end_time - (days * 24 * 60 * 60)
-    
-    # Store all opportunities
-    all_opportunities = []
-    
-    # Create timestamps for each interval
     current_time = start_time
+
+    timestamps = []
     while current_time <= end_time:
-        try:
-            # Get block number for this timestamp
-            block = get_block_by_timestamp(current_time)
-            
-            # Print the block being checked
-            print(f"Checking block {block} at timestamp {datetime.fromtimestamp(current_time)}")
-            
-            # Get prices for this block
-            prices = get_prices_at_block(block)
-            
-            # Find arbitrage opportunities
-            opportunities = find_arbitrage_opportunities(prices)
-            
-            if opportunities:
-                for opp in opportunities:
-                    opp['timestamp'] = current_time
-                    opp['block'] = block
-                    all_opportunities.append(opp)
-                    
-                    print(f"Arbitrage found at block {block} ({datetime.fromtimestamp(current_time)})")
-                    print(f"Buy from {opp['buy_pool']} at {opp['buy_price']:.2f} USDC")
-                    print(f"Sell to {opp['sell_pool']} at {opp['sell_price']:.2f} USDC")
-                    print(f"Profit per ETH: {opp['profit_per_eth']:.2f} USDC ({opp['profit_percentage']:.2f}%)")
-            else:
-                print(f"No arbitrage opportunities found at block {block}")
-            
-        except Exception as e:
-            print(f"Error processing timestamp {current_time}: {str(e)}")
-            
+        timestamps.append(current_time)
         current_time += interval_minutes * 60
-    
+
+    all_opportunities = []
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_timestamp = {executor.submit(fetch_block_data, ts): ts for ts in timestamps}
+        for future in as_completed(future_to_timestamp):
+            result = future.result()
+            if result:
+                timestamp, block, opportunities = result
+                if opportunities:
+                    for opp in opportunities:
+                        opp['timestamp'] = timestamp
+                        opp['block'] = block
+                        all_opportunities.append(opp)
+                        print(f"Arbitrage found at block {block} ({datetime.fromtimestamp(timestamp)})")
+                        print(f"Buy from {opp['buy_pool']} at {opp['buy_price']:.2f} USDC")
+                        print(f"Sell to {opp['sell_pool']} at {opp['sell_price']:.2f} USDC")
+                        print(f"Profit per ETH: {opp['profit_per_eth']:.2f} USDC ({opp['profit_percentage']:.2f}%)")
+                else:
+                    print(f"No arbitrage opportunities found at block {block} ({datetime.fromtimestamp(timestamp)})")
+
     # Save results to file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"arbitrage_opportunities_{timestamp}.json"
@@ -120,7 +114,7 @@ def analyze_historical_arbitrage(days: int = 3, interval_minutes: int = 30):
         
     print(f"Analysis complete. Found {len(all_opportunities)} opportunities.")
     print(f"Results saved to {filename}")
-    
+
     return all_opportunities
 
 def analyze_results(opportunities: List[Dict]):
@@ -147,7 +141,7 @@ def analyze_results(opportunities: List[Dict]):
 
 if __name__ == "__main__":
     # Run analysis for past 3 days, checking every 30 minutes
-    opportunities = analyze_historical_arbitrage(days=1, interval_minutes=0.5)
+    opportunities = analyze_historical_arbitrage_parallel(days=1, interval_minutes=0.5)
     
     # Analyze results
     analyze_results(opportunities) 
