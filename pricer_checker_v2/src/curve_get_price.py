@@ -74,18 +74,18 @@ def get_curve_prices() -> Dict[str, Dict[str, float]]:
             usdc_amount = pool_contract.functions.get_dy(2, 0, eth_input).call()
             eth_sell_price = usdc_amount / (10**6)
 
-            usdc_amount = 1000 * 10**6  # 1000 USDC
+            usdc_amount = 3000 * 10**6  # 3000 USDC
             eth_amount = pool_contract.functions.get_dy(0, 2, usdc_amount).call()
-            eth_buy_price = (1000 / (eth_amount / 10**18))
+            eth_buy_price = (3000 / (eth_amount / 10**18))
 
             # WBTC prices
-            wbtc_input = 1 * 10**8  # 1 WBTC
+            wbtc_input = int(0.05 * 10**8)  # 0.05 WBTC
             usdc_amount = pool_contract.functions.get_dy(1, 0, wbtc_input).call()
-            wbtc_sell_price = usdc_amount / (10**6)
+            wbtc_sell_price = (0.05 / (usdc_amount / (10**6)))
 
-            usdc_amount = 1000 * 10**6  # 1000 USDC
+            usdc_amount = 3000 * 10**6  # 3000 USDC
             wbtc_amount = pool_contract.functions.get_dy(0, 1, usdc_amount).call()
-            wbtc_buy_price = (1000 / (wbtc_amount / 10**8))
+            wbtc_buy_price = (3000 / (wbtc_amount / 10**8))
 
             pool_prices[pool_address] = {
                 'eth_buy': eth_buy_price,

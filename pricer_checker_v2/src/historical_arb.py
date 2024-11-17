@@ -84,6 +84,9 @@ def analyze_historical_arbitrage(days: int = 3, interval_minutes: int = 30):
             # Get block number for this timestamp
             block = get_block_by_timestamp(current_time)
             
+            # Print the block being checked
+            print(f"Checking block {block} at timestamp {datetime.fromtimestamp(current_time)}")
+            
             # Get prices for this block
             prices = get_prices_at_block(block)
             
@@ -96,16 +99,18 @@ def analyze_historical_arbitrage(days: int = 3, interval_minutes: int = 30):
                     opp['block'] = block
                     all_opportunities.append(opp)
                     
-                    print(f"\nArbitrage found at block {block} ({datetime.fromtimestamp(current_time)})")
+                    print(f"Arbitrage found at block {block} ({datetime.fromtimestamp(current_time)})")
                     print(f"Buy from {opp['buy_pool']} at {opp['buy_price']:.2f} USDC")
                     print(f"Sell to {opp['sell_pool']} at {opp['sell_price']:.2f} USDC")
                     print(f"Profit per ETH: {opp['profit_per_eth']:.2f} USDC ({opp['profit_percentage']:.2f}%)")
+            else:
+                print(f"No arbitrage opportunities found at block {block}")
             
         except Exception as e:
             print(f"Error processing timestamp {current_time}: {str(e)}")
             
         current_time += interval_minutes * 60
-        
+    
     # Save results to file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"arbitrage_opportunities_{timestamp}.json"
@@ -113,7 +118,7 @@ def analyze_historical_arbitrage(days: int = 3, interval_minutes: int = 30):
     with open(filename, 'w') as f:
         json.dump(all_opportunities, f, indent=2)
         
-    print(f"\nAnalysis complete. Found {len(all_opportunities)} opportunities.")
+    print(f"Analysis complete. Found {len(all_opportunities)} opportunities.")
     print(f"Results saved to {filename}")
     
     return all_opportunities

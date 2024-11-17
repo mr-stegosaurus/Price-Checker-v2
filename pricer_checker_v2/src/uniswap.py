@@ -90,7 +90,7 @@ def get_uniswap_prices() -> Dict[str, Dict[str, float]]:
             eth_sell_price = usdc_amount / (10**6)
             
             # Get ETH buy price (USDC -> ETH)
-            usdc_input = 1000 * 10**6  # 1000 USDC
+            usdc_input = 3000 * 10**6  # 1000 USDC
             eth_amount = quoter_contract.functions.quoteExactInputSingle(
                 usdc_token,
                 weth_token,
@@ -98,7 +98,7 @@ def get_uniswap_prices() -> Dict[str, Dict[str, float]]:
                 usdc_input,
                 0
             ).call()
-            eth_buy_price = (1000 / (eth_amount / 10**18))
+            eth_buy_price = (3000 / (eth_amount / 10**18))
             
             pool_prices[pool_address] = {
                 'eth_buy': eth_buy_price,
