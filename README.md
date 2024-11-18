@@ -4,7 +4,7 @@ Markets seem efficient so not expecting many arb opportunities. Will try to spre
 
 To-Do
 -Add CEXes
--Update curve pricing with more sophsiticated routing.
+-Update curve pricing with more sophsiticated routing (use get_quote insteady of get_dy)
 -Update uniswap pricing with more sophisticated routing.
 -Create backtesting script to find historical arbitrage opportunities. [DONE]
 -Create addtl backtesting script that uses TheGraph instead of Alchemy. Should be faster.
