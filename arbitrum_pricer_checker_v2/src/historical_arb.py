@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 load_dotenv()
 
 # Get Alchemy API URL from environment variables
-ALCHEMY_API_URL = os.getenv('ARB ALCHEMY_API_URL')
+ALCHEMY_API_URL = os.getenv('ARB_ALCHEMY_API_URL')
 w3 = Web3(Web3.HTTPProvider(ALCHEMY_API_URL))
 
 def get_block_by_timestamp(timestamp: int) -> int:

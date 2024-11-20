@@ -8,10 +8,10 @@ import os
 load_dotenv()
 
 # Get Alchemy API URL from environment variables
-ALCHEMY_API_URL = os.getenv('ARB ALCHEMY_API_URL')
+ALCHEMY_API_URL = os.getenv('ARB_ALCHEMY_API_URL')
 w3 = Web3(Web3.HTTPProvider(ALCHEMY_API_URL))
 
-# Constants
+# Constants UPDATE THESE FOR ARBITRUM   
 QUOTER_ADDRESS = "0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6"
 USDC = Web3.to_checksum_address("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")
 WETH = Web3.to_checksum_address("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
