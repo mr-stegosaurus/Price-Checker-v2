@@ -53,6 +53,7 @@ amount_in = 1 * 10**18  # 1 ETH in wei
 # Common addresses
 WETH = Web3.to_checksum_address("0x82aF49447D8a07e3bd95BD0d56f35241523fBab1")  # Wrapped ETH
 CRVUSD = Web3.to_checksum_address("0x498bf2b1e120fed3ad3d42ea2165e9b73f99c1e5") #crvUSD
+USDC = Web3.to_checksum_address("0xaf88d065e77c8cc2239327c5edb3a432268e5831") #USDC
 
 # Initialize quotes variable
 weth_quotes = []
@@ -80,6 +81,55 @@ print("\nWETH Quotes:")
 for quote in weth_quotes:
     print(f"Amount out: {quote[3] / 10**18} crvUSD")
     print(f"Pool: {quote[4]}")
+
+# Get crvUSD to USDC quotes
+try:
+    print("\nAttempting crvUSD -> USDC quote...")
+    crvusd_quotes = rate_provider.functions.get_quotes(CRVUSD, USDC, weth_quotes[0][3]).call()
+    print(f"Success! Found {len(crvusd_quotes)} crvUSD routes")
+except Exception as e:
+    print(f"Error getting crvUSD quotes: {str(e)}")
+
+# Print token addresses
+print("\nToken Addresses Used:")
+print(f"crvUSD: {CRVUSD}")
+print(f"USDC: {USDC}")
+
+# Check crvUSD routes
+print("\ncrvUSD Quotes:")
+for quote in crvusd_quotes:
+    print(f"Amount out: {quote[3] / 10**6} USDC")  # Note: USDC has 6 decimals
+    print(f"Pool: {quote[4]}")
+    
+# Now calculate reverse route
+print("\nCalculating reverse route...")
+
+# USDC -> crvUSD
+try:
+    print("\nAttempting USDC -> crvUSD quote...")
+    usdc_quotes = rate_provider.functions.get_quotes(USDC, CRVUSD, crvusd_quotes[0][3]).call()
+    print(f"Success! Found {len(usdc_quotes)} USDC routes")
+except Exception as e:
+    print(f"Error getting USDC quotes: {str(e)}")
+
+print("\nUSDC -> crvUSD Quotes:")
+for quote in usdc_quotes:
+    print(f"Amount out: {quote[3] / 10**18} crvUSD")
+    print(f"Pool: {quote[4]}")
+
+# crvUSD -> WETH
+try:
+    print("\nAttempting crvUSD -> WETH quote...")
+    final_quotes = rate_provider.functions.get_quotes(CRVUSD, WETH, usdc_quotes[0][3]).call()
+    print(f"Success! Found {len(final_quotes)} crvUSD routes")
+except Exception as e:
+    print(f"Error getting final WETH quotes: {str(e)}")
+
+print("\nFinal crvUSD -> WETH Quotes:")
+for quote in final_quotes:
+    print(f"Amount out: {quote[3] / 10**18} WETH")
+    print(f"Pool: {quote[4]}")
+    print(f"Net WETH change: {(quote[3] - amount_in) / 10**18} WETH")
 
 # Add verification
 print(f"Using Address Provider: {address_provider.address}")
