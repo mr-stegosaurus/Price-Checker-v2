@@ -3,6 +3,11 @@ from typing import Dict, List, Tuple, Set
 from dotenv import load_dotenv
 import os
 from itertools import permutations
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
+from services.cache_service import CurvePoolCache
+from services.route_finder import RouteFinder
+from services.quote_service import QuoteService
 
 # Load environment variables
 load_dotenv()
@@ -19,26 +24,27 @@ class CurveRouter:
         )
         
         # Initialize registry
-        self.registry_address = self.address_provider.functions.get_address(0).call()
+        self.registry_address = self.address_provider.functions.get_address(7).call()
         self.registry = self.w3.eth.contract(
             address=Web3.to_checksum_address(self.registry_address),
             abi=self._get_registry_abi()
         )
         
         # Initialize rate provider
-        self.rate_provider_address = self.address_provider.functions.get_address(7).call()
+        self.rate_provider_address = self.address_provider.functions.get_address(18).call()
         self.rate_provider = self.w3.eth.contract(
             address=Web3.to_checksum_address(self.rate_provider_address),
             abi=self._get_rate_provider_abi()
         )
         
-        # Cache for pools and tokens
-        self.pool_tokens: Dict[str, Set[str]] = {}  # pool -> tokens
-        self.token_pools: Dict[str, Set[str]] = {}  # token -> pools
-        self.all_tokens: Set[str] = set()
+        # Initialize cache service
+        self.cache = CurvePoolCache(self.w3, self.registry)
         
-        # Build initial cache
-        self._build_pool_cache()
+        # Initialize route finder
+        self.route_finder = RouteFinder(self.cache)
+        
+        # Initialize quote service
+        self.quote_service = QuoteService(self.w3, self.rate_provider)
         
     def _get_address_provider_abi(self) -> List:
         return [{
@@ -111,93 +117,32 @@ class CurveRouter:
             "type": "function"
         }]
 
-    def _build_pool_cache(self):
-        """Build cache of all pools and their tokens"""
-        try:
-            pool_count = self.registry.functions.pool_count().call()
-            print(f"\n=== Registry Scan ===")
-            print(f"Found {pool_count} pools in registry")
-
-            for i in range(pool_count):
-                try:
-                    pool_address = self.registry.functions.pool_list(i).call()
-                    pool_address = Web3.to_checksum_address(pool_address)
-                    print(f"\nProcessing pool {i+1}/{pool_count}: {pool_address}")
-                    
-                    # Get both regular and underlying coins
-                    coins = self.registry.functions.get_coins(pool_address).call()
-                    underlying = self.registry.functions.get_underlying_coins(pool_address).call()
-                    
-                    # Filter out null addresses and combine coins
-                    pool_tokens = set()
-                    print("Tokens found in pool:")
-                    for coin in coins + underlying:
-                        if coin and coin != "0x0000000000000000000000000000000000000000":
-                            coin = Web3.to_checksum_address(coin)
-                            pool_tokens.add(coin)
-                            print(f"  - {coin}")
-                            
-                            # Update token -> pools mapping
-                            if coin not in self.token_pools:
-                                self.token_pools[coin] = set()
-                            self.token_pools[coin].add(pool_address)
-                    
-                    # Update pool -> tokens mapping
-                    self.pool_tokens[pool_address] = pool_tokens
-                    
-                    # Update all_tokens set
-                    self.all_tokens.update(pool_tokens)
-                    
-                except Exception as e:
-                    print(f"Error processing pool {i}: {str(e)}")
-                    continue
-                
-            print(f"\n=== Cache Summary ===")
-            print(f"Cached {len(self.all_tokens)} unique tokens across {len(self.pool_tokens)} pools")
-            
-        except Exception as e:
-            print(f"Error building pool cache: {str(e)}")
-
     def _get_possible_intermediate_tokens(self, token_in: str, token_out: str) -> Set[str]:
         """Get all tokens that could serve as intermediaries"""
-        print(f"\n=== Finding Intermediate Tokens ===")
-        print(f"Input Token: {token_in}")
-        print(f"Output Token: {token_out}")
+        pools_with_input = self.cache.token_pools.get(token_in, set())
+        pools_with_output = self.cache.token_pools.get(token_out, set())
         
-        # Get pools that contain token_in
-        pools_with_input = self.token_pools.get(token_in, set())
-        print(f"Found {len(pools_with_input)} pools containing input token")
-        
-        # Get all tokens from these pools
+        # For intermediate routes
         possible_intermediates = set()
+        # Check tokens in pools that have input token
         for pool in pools_with_input:
-            possible_intermediates.update(self.pool_tokens[pool])
+            possible_intermediates.update(self.cache.pool_tokens[pool])
+        # Check tokens in pools that have output token
+        for pool in pools_with_output:
+            possible_intermediates.update(self.cache.pool_tokens[pool])
         
-        print(f"Initial possible intermediates: {len(possible_intermediates)}")
-        
-        # Remove input and output tokens
+        # Remove input/output tokens
         possible_intermediates -= {token_in, token_out}
         
-        # Filter to only tokens that can also reach the output token
-        valid_intermediates = {token for token in possible_intermediates 
-                             if self.token_pools.get(token, set()) & self.token_pools.get(token_out, set())}
-        
-        print(f"Final valid intermediates: {len(valid_intermediates)}")
-        print("Valid intermediate tokens:")
-        for token in valid_intermediates:
-            print(f"  - {token}")
-            
-        return valid_intermediates
+        print(f"\nFound {len(possible_intermediates)} possible intermediate tokens")
+        return possible_intermediates
 
     def _get_single_hop_quote(self, token_in: str, token_out: str, amount_in: int) -> List[tuple]:
         """Get quotes for a single hop"""
         try:
-            print(f"\nGetting quote for {token_in} -> {token_out}")
             quotes = self.rate_provider.functions.get_quotes(token_in, token_out, amount_in).call()
-            print(f"Found {len(quotes)} quotes")
-            for quote in quotes:
-                print(f"  Pool: {quote[4]}")
-                print(f"  Amount Out: {quote[3]}")
+            if quotes:  # Only print if quotes found
+                print(f"\nFound {len(quotes)} quotes for {token_in[:8]}...{token_out[-8:]}")
             return quotes
         except Exception as e:
             print(f"Error getting quote: {str(e)}")
@@ -230,29 +175,32 @@ class CurveRouter:
         
         return routes
 
-    def _simulate_route(self, route: List[str], amount_in: int) -> Dict:
-        """Simulate a multi-hop route and return the result"""
+    async def _simulate_route(self, route: List[str], amount_in: int) -> Dict:
+        """Simulate a multi-hop route"""
         current_amount = amount_in
         hops = []
         
+        # Process each hop sequentially
         for i in range(len(route) - 1):
             token_in, token_out = route[i], route[i + 1]
             quotes = self._get_single_hop_quote(token_in, token_out, current_amount)
             
             if not quotes:
                 return None
-                
-            best_quote = max(quotes, key=lambda x: x[3])
-            current_amount = best_quote[3]
             
+            best_quote = max(quotes, key=lambda x: x[3])  # x[3] is amount_out
+            if not best_quote:
+                return None
+            
+            current_amount = best_quote[3]  # Update amount for next hop
             hops.append({
-                "token_in": token_in,
-                "token_out": token_out,
-                "amount_in": current_amount,
+                "token_in": route[i],
+                "token_out": route[i + 1],
+                "amount_in": amount_in if i == 0 else hops[i-1]["amount_out"],
                 "amount_out": best_quote[3],
-                "pool": best_quote[4]
+                "pool": best_quote[4]  # pool address is at index 4
             })
-            
+        
         return {
             "protocol": "Curve",
             "path": route,
@@ -261,34 +209,66 @@ class CurveRouter:
             "output_amount": current_amount
         }
 
-    def find_best_route(self, token_in: str, token_out: str, amount_in: int) -> Dict:
-        """Find the best route between two tokens using up to 3 hops"""
-        token_in = Web3.to_checksum_address(token_in)
-        token_out = Web3.to_checksum_address(token_out)
+    async def find_best_route(self, token_in: str, token_out: str, amount_in: int):
+        # Get all possible routes using RouteFinder service
+        possible_routes = self.route_finder.find_possible_routes(token_in, token_out)
         
-        # Find all possible routes
-        possible_routes = self._find_routes(token_in, token_out)
-        print(f"Found {len(possible_routes)} possible routes")
-        
-        # Simulate each route
-        valid_routes = []
-        for route in possible_routes:
-            result = self._simulate_route(route, amount_in)
-            if result:
-                valid_routes.append(result)
-        
-        if not valid_routes:
+        if not possible_routes:
+            print(f"No possible routes found between {token_in} and {token_out}")
             return None
-            
-        # Find best route by output amount
-        best_route = max(valid_routes, key=lambda x: x['output_amount'])
+        
+        # Simulate each route to find the best one
+        best_route = None
+        best_amount = 0
+        all_routes = []
+        
+        for route in possible_routes:
+            print(f"Trying route: {' -> '.join(route.path)}")
+            result = await self._simulate_route(route.path, amount_in)
+            if result and result['output_amount'] > best_amount:
+                best_route = result
+                best_amount = result['output_amount']
+            if result:
+                all_routes.append(result)
+        
+        if not all_routes:
+            print("No valid routes found")
+            return None
         
         return {
-            "best_route": best_route,
-            "all_routes": valid_routes
+            'best_route': best_route,
+            'all_routes': all_routes
         }
 
-def main():
+    def _get_quotes_parallel(self, route_params: List[Tuple]) -> List:
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            futures = []
+            for params in route_params:
+                token_in, token_out, amount = params
+                futures.append(
+                    executor.submit(
+                        self._get_single_hop_quote,
+                        token_in,
+                        token_out,
+                        amount
+                    )
+                )
+            
+            results = []
+            for future in futures:
+                try:
+                    result = future.result(timeout=2.0)
+                    if result:
+                        results.append(result)
+                except Exception as e:
+                    print(f"Quote failed: {e}")
+            
+            return results
+
+    def get_pools_for_token(self, token: str) -> Set[str]:
+        return self.cache.token_pools.get(token, set())
+
+async def main():
     router = CurveRouter()
     
     # Example tokens
@@ -298,7 +278,7 @@ def main():
     # Amount in (1000 USDC)
     amount_in = 1000 * 10**6
     
-    result = router.find_best_route(USDC, USDT, amount_in)
+    result = await router.find_best_route(USDC, USDT, amount_in)
     
     if result:
         best_route = result['best_route']
@@ -317,4 +297,4 @@ def main():
         print("\nAll Routes Found:", len(result['all_routes']))
 
 if __name__ == "__main__":
-    main() 
+    asyncio.run(main()) 
