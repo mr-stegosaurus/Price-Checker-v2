@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 import asyncio
 from services.cache_service import CurvePoolCache
 from services.route_finder import RouteFinder
-from services.quote_service import QuoteService
 import time
 
 # Load environment variables
@@ -44,9 +43,6 @@ class CurveRouter:
         
         # Initialize route finder
         self.route_finder = RouteFinder(self.cache)
-        
-        # Initialize quote service
-        self.quote_service = QuoteService(self.w3, self.rate_provider)
         
     def _get_address_provider_abi(self) -> List:
         return [{
@@ -267,70 +263,6 @@ class CurveRouter:
             'all_routes': all_routes
         }
 
-    def _get_quotes_parallel(self, route_params: List[Tuple]) -> List:
-        with ThreadPoolExecutor(max_workers=32) as executor:
-            futures = []
-            for params in route_params:
-                token_in, token_out, amount = params
-                futures.append(
-                    executor.submit(
-                        self._get_single_hop_quote,
-                        token_in,
-                        token_out,
-                        amount
-                    )
-                )
-            
-            results = []
-            for future in futures:
-                try:
-                    result = future.result(timeout=2.0)
-                    if result:
-                        results.append(result)
-                except Exception as e:
-                    print(f"Quote failed: {e}")
-            
-            return results
-
-    def get_pools_for_token(self, token: str) -> Set[str]:
-        """Get all pools that contain the token, using parallel processing"""
-        token = Web3.to_checksum_address(token)
-        
-        def check_pool(pool_address: str) -> Tuple[str, bool]:
-            try:
-                coins = self.registry.functions.get_coins(pool_address).call()
-                underlying_coins = self.registry.functions.get_underlying_coins(pool_address).call()
-                # Check both regular and underlying coins
-                has_token = token in coins or token in underlying_coins
-                return (pool_address, has_token)
-            except Exception as e:
-                print(f"Error checking pool {pool_address}: {e}")
-                return (pool_address, False)
-        
-        # Get total pool count
-        pool_count = self.registry.functions.pool_count().call()
-        pool_addresses = [
-            self.registry.functions.pool_list(i).call()
-            for i in range(pool_count)
-        ]
-        
-        print(f"\nChecking {pool_count} pools for token {token}")
-        start_time = time.time()
-        
-        # Use ThreadPoolExecutor for parallel processing
-        with ThreadPoolExecutor(max_workers=32) as executor:
-            futures = [executor.submit(check_pool, pool) for pool in pool_addresses]
-            results = [
-                future.result()[0]  # Get pool address
-                for future in futures
-                if future.result()[1]  # Check if pool contains token
-            ]
-        
-        execution_time = time.time() - start_time
-        print(f"Pool search completed in {execution_time:.2f} seconds")
-        
-        return set(results)
-
     def _get_token_decimals(self, token_address: str) -> int:
         """Get token decimals from contract"""
         try:
@@ -345,8 +277,8 @@ async def main():
     router = CurveRouter()
     
     # Example tokens
-    token_in = "0x912ce59144191c1204e64559fe8253a0e49e6548"  # arb
-    token_out = "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8"  # usdc.e
+    token_in = "0x912CE59144191C1204E64559FE8253a0e49E6548"  # arb
+    token_out = "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8"  # usdc.e
     
     # Get decimals for both tokens
     in_decimals = router._get_token_decimals(token_in)
