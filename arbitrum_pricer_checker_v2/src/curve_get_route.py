@@ -8,6 +8,7 @@ import asyncio
 from services.cache_service import CurvePoolCache
 from services.route_finder import RouteFinder
 from services.quote_service import QuoteService
+import time
 
 # Load environment variables
 load_dotenv()
@@ -32,6 +33,7 @@ class CurveRouter:
         
         # Initialize rate provider
         self.rate_provider_address = self.address_provider.functions.get_address(18).call()
+        print(f"\nRate Provider Address: {self.rate_provider_address}")
         self.rate_provider = self.w3.eth.contract(
             address=Web3.to_checksum_address(self.rate_provider_address),
             abi=self._get_rate_provider_abi()
@@ -180,19 +182,33 @@ class CurveRouter:
         current_amount = amount_in
         hops = []
         
+        print(f"\nSimulating route: {' -> '.join(route)}")
+        
         # Process each hop sequentially
         for i in range(len(route) - 1):
             token_in, token_out = route[i], route[i + 1]
+            
+            # Get decimals for better logging
+            in_decimals = self._get_token_decimals(token_in)
+            out_decimals = self._get_token_decimals(token_out)
+            
+            print(f"\nHop {i+1}: {token_in} -> {token_out}")
+            print(f"Input amount: {current_amount / 10**in_decimals} ({current_amount} raw)")
+            
             quotes = self._get_single_hop_quote(token_in, token_out, current_amount)
             
             if not quotes:
+                print(f"No quotes found for hop {i+1}")
                 return None
             
             best_quote = max(quotes, key=lambda x: x[3])  # x[3] is amount_out
             if not best_quote:
+                print(f"No valid quote found for hop {i+1}")
                 return None
             
             current_amount = best_quote[3]  # Update amount for next hop
+            print(f"Output amount: {current_amount / 10**out_decimals} ({current_amount} raw)")
+            
             hops.append({
                 "token_in": route[i],
                 "token_out": route[i + 1],
@@ -210,12 +226,23 @@ class CurveRouter:
         }
 
     async def find_best_route(self, token_in: str, token_out: str, amount_in: int):
-        # Get all possible routes using RouteFinder service
+        # Convert addresses to checksum format
+        token_in = Web3.to_checksum_address(token_in)
+        token_out = Web3.to_checksum_address(token_out)
+        
+        print(f"\nSearching for routes between {token_in} and {token_out}")
         possible_routes = self.route_finder.find_possible_routes(token_in, token_out)
         
         if not possible_routes:
-            print(f"No possible routes found between {token_in} and {token_out}")
+            print("\nDebug: Route finding failed")
+            print(f"Input token pools: {self.cache.token_pools.get(token_in, set())}")
+            print(f"Output token pools: {self.cache.token_pools.get(token_out, set())}")
+            print(f"Direct path possible: {self._get_single_hop_quote(token_in, token_out, 1)}")
             return None
+        
+        print(f"\nFound {len(possible_routes)} possible routes:")
+        for route in possible_routes:
+            print(f"Route: {' -> '.join(route.path)}")
         
         # Simulate each route to find the best one
         best_route = None
@@ -241,7 +268,7 @@ class CurveRouter:
         }
 
     def _get_quotes_parallel(self, route_params: List[Tuple]) -> List:
-        with ThreadPoolExecutor(max_workers=20) as executor:
+        with ThreadPoolExecutor(max_workers=32) as executor:
             futures = []
             for params in route_params:
                 token_in, token_out, amount = params
@@ -266,32 +293,89 @@ class CurveRouter:
             return results
 
     def get_pools_for_token(self, token: str) -> Set[str]:
-        return self.cache.token_pools.get(token, set())
+        """Get all pools that contain the token, using parallel processing"""
+        token = Web3.to_checksum_address(token)
+        
+        def check_pool(pool_address: str) -> Tuple[str, bool]:
+            try:
+                coins = self.registry.functions.get_coins(pool_address).call()
+                underlying_coins = self.registry.functions.get_underlying_coins(pool_address).call()
+                # Check both regular and underlying coins
+                has_token = token in coins or token in underlying_coins
+                return (pool_address, has_token)
+            except Exception as e:
+                print(f"Error checking pool {pool_address}: {e}")
+                return (pool_address, False)
+        
+        # Get total pool count
+        pool_count = self.registry.functions.pool_count().call()
+        pool_addresses = [
+            self.registry.functions.pool_list(i).call()
+            for i in range(pool_count)
+        ]
+        
+        print(f"\nChecking {pool_count} pools for token {token}")
+        start_time = time.time()
+        
+        # Use ThreadPoolExecutor for parallel processing
+        with ThreadPoolExecutor(max_workers=32) as executor:
+            futures = [executor.submit(check_pool, pool) for pool in pool_addresses]
+            results = [
+                future.result()[0]  # Get pool address
+                for future in futures
+                if future.result()[1]  # Check if pool contains token
+            ]
+        
+        execution_time = time.time() - start_time
+        print(f"Pool search completed in {execution_time:.2f} seconds")
+        
+        return set(results)
+
+    def _get_token_decimals(self, token_address: str) -> int:
+        """Get token decimals from contract"""
+        try:
+            abi = [{"inputs":[],"name":"decimals","outputs":[{"internalType":"uint8","type":"uint8"}],"stateMutability":"view","type":"function"}]
+            token_contract = self.w3.eth.contract(address=Web3.to_checksum_address(token_address), abi=abi)
+            return token_contract.functions.decimals().call()
+        except Exception as e:
+            print(f"Error getting decimals for {token_address}: {e}")
+            return 18  # Default to 18 if unable to get decimals
 
 async def main():
     router = CurveRouter()
     
     # Example tokens
-    USDC = "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8"
-    USDT = "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9"
+    token_in = "0x912ce59144191c1204e64559fe8253a0e49e6548"  # arb
+    token_out = "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8"  # usdc.e
     
-    # Amount in (1000 USDC)
-    amount_in = 1000 * 10**6
+    # Get decimals for both tokens
+    in_decimals = router._get_token_decimals(token_in)
+    out_decimals = router._get_token_decimals(token_out)
     
-    result = await router.find_best_route(USDC, USDT, amount_in)
+    print(f"Input token decimals: {in_decimals}")
+    print(f"Output token decimals: {out_decimals}")
+    
+    # Amount in (44.906 token_in)
+    amount_in = int(44.906 * 10**in_decimals)  # Convert to integer explicitly
+    
+    result = await router.find_best_route(token_in, token_out, amount_in)
     
     if result:
         best_route = result['best_route']
         print("\nBest Route Found:")
         print(f"Path: {' -> '.join(best_route['path'])}")
-        print(f"Input Amount: {amount_in / 10**6} USDC")
-        print(f"Output Amount: {best_route['output_amount'] / 10**6} USDT")
+        print(f"Input Amount: {amount_in / 10**in_decimals} {token_in}")
+        print(f"Output Amount: {best_route['output_amount'] / 10**out_decimals} {token_out}")
         
         print("\nHop Details:")
         for hop in best_route['hops']:
+            # Get decimals for each hop
+            hop_in_decimals = router._get_token_decimals(hop['token_in'])
+            hop_out_decimals = router._get_token_decimals(hop['token_out'])
+            
             print(f"Pool: {hop['pool']}")
-            print(f"Amount In: {hop['amount_in'] / 10**6}")
-            print(f"Amount Out: {hop['amount_out'] / 10**6}")
+            print(f"Amount In: {hop['amount_in'] / 10**hop_in_decimals}")
+            print(f"Amount Out: {hop['amount_out'] / 10**hop_out_decimals}")
             print("---")
         
         print("\nAll Routes Found:", len(result['all_routes']))
